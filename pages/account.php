@@ -27,8 +27,7 @@ if (is_post()) {
         q('DELETE FROM addresses WHERE id=? AND user_id=?', [(int)$_POST['id'], $user['id']]);
         flash('success', 'Address removed.');
     } elseif ($do === 'address_default') {
-        q('UPDATE addresses SET is_default = (id=?) WHERE user_id=?', [(int)$_POST['id'], $user['id']]);
-        flash('success', 'Default address updated.');
+        if (fetch_one('SELECT id FROM addresses WHERE id=? AND user_id=?',[(int)$_POST['id'],$user['id']])) { q('UPDATE addresses SET is_default = (id=?) WHERE user_id=?', [(int)$_POST['id'], $user['id']]); flash('success', 'Default address updated.'); } else flash('error','Address not found.');
     } elseif ($do === 'password') {
         if (!password_verify($_POST['current'] ?? '', $user['password_hash'])) flash('error', 'Current password is incorrect.');
         elseif ($m = validate_password($_POST['password'] ?? '')) flash('error', $m);

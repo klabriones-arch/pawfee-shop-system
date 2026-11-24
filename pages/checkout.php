@@ -58,7 +58,7 @@ if (is_post()) {
     if (!$err) {
         $t = cart_totals($method);
         $data = ['name' => $name, 'email' => $email, 'phone' => $phone, 'billing' => $billing, 'shipping' => $shipping, 'method' => $method,
-                 'coupon' => $t['coupon']['code'] ?? '', 'payment_method' => $payMethod, 'payment_status' => 'pending'];
+                 'coupon' => $t['coupon']['code'] ?? '', 'payment_method' => $payMethod, 'payment_status' => 'pending', 'total'=>$t['total']];
         try {
             if ($payMethod === 'mock_online') {
                 $_SESSION['pending_checkout'] = $data + ['total' => $t['total'], 'user_id' => $user['id'], 'cart_signature'=>hash('sha256',json_encode(array_map(fn($i)=>[$i['product_id'],$i['variant_ids'],$i['qty'],$i['unit_price']],$t['items'])))];

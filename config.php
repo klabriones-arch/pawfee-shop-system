@@ -9,7 +9,7 @@ define('DB_USER', 'root');
 define('DB_PASS', '');
 
 // Folder name inside C:\xampp\htdocs  ->  http://localhost/pawfee
-define('BASE_URL', '/pawfee');
+define('BASE_URL', PHP_SAPI === 'cli' ? '/pawfee' : rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '/pawfee/index.php')), '/.'));
 
 define('APP_DEBUG', false);
 define('CURRENCY', '₱');

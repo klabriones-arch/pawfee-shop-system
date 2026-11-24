@@ -55,8 +55,15 @@ if (is_post()) {
                 $id = (int)$pdo->lastInsertId();
                 if ($stock > 0) adjust_stock($id, $stock, 'Opening stock', $uid);
             }
-            q('DELETE FROM product_variants WHERE product_id=?', [$id]);
-            foreach (parse_variants($_POST['variants'] ?? '') as $v) q('INSERT INTO product_variants (product_id,group_name,label,price_delta,is_default,sort_order) VALUES (?,?,?,?,?,?)', array_merge([$id], $v));
+            // Preserve IDs for unchanged options so customer cart selections remain valid.
+            $existing=fetch_all('SELECT id,group_name,label FROM product_variants WHERE product_id=?',[$id]);
+            $kept=[];
+            foreach(parse_variants($_POST['variants'] ?? '') as $v) {
+                $match=null; foreach($existing as $old) if ($old['group_name']===$v[0] && $old['label']===$v[1] && !in_array((int)$old['id'],$kept,true)) { $match=(int)$old['id']; break; }
+                if ($match) { q('UPDATE product_variants SET price_delta=?,is_default=?,sort_order=? WHERE id=?',[$v[2],$v[3],$v[4],$match]); $kept[]=$match; }
+                else q('INSERT INTO product_variants (product_id,group_name,label,price_delta,is_default,sort_order) VALUES (?,?,?,?,?,?)',array_merge([$id],$v));
+            }
+            foreach($existing as $old) if (!in_array((int)$old['id'],$kept,true)) q('DELETE FROM product_variants WHERE id=?',[$old['id']]);
             $pdo->commit();
         } catch (Throwable $e) { $pdo->rollBack(); flash('error', $e->getMessage()); redirect(url('admin', ['section' => 'products'])); }
 

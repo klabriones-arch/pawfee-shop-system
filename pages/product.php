@@ -30,13 +30,13 @@ page_header($p['name'], 'shop');
     </div>
     <p class="muted small" data-option-label><?= e($defLabel) ?></p>
     <hr>
-    <form method="post" action="<?= BASE_URL ?>/index.php?page=cart&action=add" data-ajax-cart data-product-form>
+    <form method="post" action="<?= e(url('cart',['action'=>'add'])) ?>" data-product-form>
       <?= csrf_field() ?><input type="hidden" name="product_id" value="<?= (int)$p['id'] ?>">
       <?php foreach ($groups as $gname => $options): ?>
         <fieldset class="option-group"><legend><?= e($gname) ?></legend>
           <div class="options">
-            <?php foreach ($options as $o): ?>
-              <label class="option"><input type="radio" name="variant[<?= e($gname) ?>]" value="<?= (int)$o['id'] ?>" data-delta="<?= (float)$o['price_delta'] ?>" data-label="<?= e($o['label']) ?>" <?= $o['is_default'] ? 'checked' : '' ?>>
+            <?php $defaultOption = current(array_filter($options,fn($o)=>$o['is_default'])) ?: $options[0]; foreach ($options as $o): ?>
+              <label class="option"><input type="radio" name="variant[<?= e($gname) ?>]" value="<?= (int)$o['id'] ?>" data-delta="<?= (float)$o['price_delta'] ?>" data-label="<?= e($o['label']) ?>" <?= $o['id'] === $defaultOption['id'] ? 'checked' : '' ?>>
                 <span><?= e($o['label']) ?><?= $o['price_delta'] != 0 ? ' ' . ($o['price_delta'] > 0 ? '+' : '−') . money(abs($o['price_delta'])) : '' ?></span></label>
             <?php endforeach; ?>
           </div>

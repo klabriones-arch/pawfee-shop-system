@@ -7,6 +7,7 @@ function current_user(): ?array
     if ($cache !== false) return $cache;
     if (empty($_SESSION['uid'])) return $cache = null;
     $u = fetch_one('SELECT * FROM users WHERE id=? AND status="active"', [$_SESSION['uid']]);
+    if ($u && !hash_equals($_SESSION['password_stamp'] ?? '', hash('sha256', $u['password_hash']))) { unset($_SESSION['uid']); return $cache = null; }
     if ($u) {
         $u['roles'] = array_column(fetch_all(
             'SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?', [$u['id']]), 'name');
@@ -34,13 +35,15 @@ function login_user(array $u): void
 {
     session_regenerate_id(true);
     $_SESSION['uid'] = $u['id'];
-    attach_guest_cart((int)$u['id']);
+    unset($_SESSION['csrf'], $_SESSION['pending_checkout'], $_SESSION['checkout_token']);
+    $_SESSION['password_stamp'] = hash('sha256', $u['password_hash']);
+    if (!ADMIN_SESSION) attach_guest_cart((int)$u['id']);
     q('UPDATE users SET last_login=NOW() WHERE id=?', [$u['id']]);
 }
 function home_for(array $u): string
 {
     if (in_array('admin', $u['roles'], true) || in_array('staff', $u['roles'], true)) return url('admin');
-    return url('account');
+    return url('menu');
 }
 function unique_username(string $email): string
 {

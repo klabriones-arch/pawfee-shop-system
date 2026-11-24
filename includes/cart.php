@@ -14,8 +14,16 @@ function cart_id(bool $create = true): ?int
     if ($guest && !$uid) return (int)$guest['id'];
     if (!$create) return null;
     $token = bin2hex(random_bytes(16));
-    q('INSERT INTO carts (token,user_id) VALUES (?,?)', [$token,$uid]);
-    $id = (int)db()->lastInsertId();
+    if ($uid) {
+        $pdo=db(); $pdo->beginTransaction();
+        try {
+            q('SELECT id FROM users WHERE id=? FOR UPDATE',[$uid]);
+            $existing=fetch_one('SELECT id FROM carts WHERE user_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE',[$uid]);
+            if ($existing) $id=(int)$existing['id'];
+            else { q('INSERT INTO carts (token,user_id) VALUES (?,?)',[$token,$uid]); $id=(int)$pdo->lastInsertId(); }
+            $pdo->commit();
+        } catch(Throwable $ex) { $pdo->rollBack(); throw $ex; }
+    } else { q('INSERT INTO carts (token,user_id) VALUES (?,?)',[$token,null]); $id=(int)db()->lastInsertId(); }
     if (!$uid) {
         setcookie('pf_cart',$token,['expires'=>time()+2592000,'path'=>'/','httponly'=>true,'samesite'=>'Lax']);
         $_COOKIE['pf_cart']=$token;
@@ -29,6 +37,7 @@ function attach_guest_cart(int $uid): void
     if (!preg_match('/^[a-f0-9]{32}$/',$token)) return;
     $guest = fetch_one('SELECT id,coupon_code FROM carts WHERE token=? AND user_id IS NULL',[$token]);
     if (!$guest) return;
+    setcookie('pf_cart','',['expires'=>time()-3600,'path'=>'/','httponly'=>true,'samesite'=>'Lax']); unset($_COOKIE['pf_cart']);
     $owned = fetch_one('SELECT id FROM carts WHERE user_id=? ORDER BY id DESC LIMIT 1',[$uid]);
     if (!$owned) { q('UPDATE carts SET user_id=? WHERE id=? AND user_id IS NULL',[$uid,$guest['id']]); return; }
     $pdo=db(); $pdo->beginTransaction();
@@ -66,11 +75,11 @@ function resolve_variants(array $product, array $selected): array
     foreach (variant_groups((int)$product['id']) as $group => $options) {
         $pick = null;
         foreach ($options as $o) if ((int)($selected[$group] ?? 0) === (int)$o['id']) $pick = $o;
-        if (!$pick) foreach ($options as $o) if ($o['is_default']) $pick = $o;
+        if (!$pick) foreach ($options as $o) if ($o['is_default']) { $pick = $o; break; }
         $pick = $pick ?: $options[0];
         $ids[] = (int)$pick['id']; $labels[] = $pick['label']; $price += (float)$pick['price_delta'];
     }
-    return [implode(',', $ids), implode(' · ', $labels), $price];
+    return [implode(',', $ids), implode(' · ', $labels), round(max(0,$price),2)];
 }
 
 function cart_add(int $productId, array $selected, int $qty): string
@@ -80,10 +89,15 @@ function cart_add(int $productId, array $selected, int $qty): string
     if (!$p) return 'This product is no longer available.';
     [$ids, $label, $price] = resolve_variants($p, $selected);
     $cid = cart_id();
+    $pdo=db(); $pdo->beginTransaction();
+    try {
+    q('SELECT id FROM carts WHERE id=? FOR UPDATE',[$cid]);
     $have = (int)fetch_val('SELECT COALESCE(SUM(qty),0) FROM cart_items WHERE cart_id=? AND product_id=?', [$cid, $productId]);
-    if ($have + $qty > $p['stock']) return $p['stock'] > 0 ? "Only {$p['stock']} left in stock." : 'Sorry, this item is out of stock.';
+    if ($have + $qty > $p['stock']) { $pdo->rollBack(); return $p['stock'] > 0 ? "Only {$p['stock']} left in stock." : 'Sorry, this item is out of stock.'; }
     q('INSERT INTO cart_items (cart_id,product_id,variant_ids,option_label,unit_price,qty) VALUES (?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty), unit_price = VALUES(unit_price)', [$cid, $productId, $ids, $label, $price, $qty]);
+    $pdo->commit();
+    } catch(Throwable $ex) { $pdo->rollBack(); throw $ex; }
     return '';
 }
 
@@ -96,8 +110,9 @@ function cart_items(): array
         FROM cart_items ci JOIN products p ON p.id=ci.product_id JOIN categories c ON c.id=p.category_id WHERE ci.cart_id=? ORDER BY ci.id', [$id]);
     foreach ($items as &$i) {
         $chosen=[]; foreach(array_filter(explode(',', $i['variant_ids'])) as $vid) { $v=fetch_one('SELECT group_name,id FROM product_variants WHERE id=? AND product_id=?',[$vid,$i['product_id']]); if($v) $chosen[$v['group_name']]=$v['id']; }
-        [, $label, $price]=resolve_variants(['id'=>$i['product_id'],'price'=>$i['price']],$chosen);
-        $i['unit_price']=$price; $i['option_label']=$label;
+        [$resolvedIds, $label, $price]=resolve_variants(['id'=>$i['product_id'],'price'=>$i['price']],$chosen);
+        $oldIds=array_filter(explode(',', $i['variant_ids'])); $newIds=array_filter(explode(',', $resolvedIds)); sort($oldIds); sort($newIds);
+        if ($oldIds !== $newIds) { $i['status']='inactive'; } else { $i['unit_price']=$price; $i['option_label']=$label; }
         if($i['category_status']!=='active') $i['status']='inactive';
     } unset($i); return $items;
 }

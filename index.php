@@ -5,10 +5,14 @@
  */
 declare(strict_types=1);
 ob_start();
-session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
-session_start();
-
 require __DIR__ . '/config.php';
+$requestedPage = $_GET['page'] ?? 'home';
+define('ADMIN_SESSION', in_array($requestedPage, ['admin','courier'], true) || (in_array($requestedPage, ['login','logout','verify'], true) && ($_GET['workspace'] ?? '') === 'admin'));
+session_name(ADMIN_SESSION ? 'PF_ADMIN' : 'PF_CUSTOMER');
+ini_set('session.use_strict_mode', '1');
+session_set_cookie_params(['path' => BASE_URL . '/', 'httponly' => true, 'samesite' => 'Lax', 'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off']);
+session_start();
+header('Cache-Control: no-store, private');
 foreach (['db', 'helpers', 'auth', 'mailer', 'cart', 'orders', 'layout', 'customer_flow'] as $f) require __DIR__ . "/includes/$f.php";
 
 $page = preg_replace('/[^a-z_]/', '', $_GET['page'] ?? 'home');

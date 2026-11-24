@@ -47,8 +47,8 @@ function page_header(string $title, string $active = '', bool $wide = false): vo
         <summary class="round-btn" aria-label="Account"><?= icon('user') ?></summary>
         <div class="menu">
           <span class="muted small">Hi, <?= e($u['first_name']) ?></span>
-          <a href="<?= home_for($u) ?>"><?= has_role('admin', 'staff') ? 'Dashboard' : 'My account' ?></a>
-          <a href="<?= url('logout') ?>">Sign out</a>
+          <a href="<?= has_role('admin','staff') ? url('admin') : url('account') ?>"><?= has_role('admin', 'staff') ? 'Dashboard' : 'My account' ?></a>
+          <form method="post" action="<?= e(url('logout')) ?>"><?= csrf_field() ?><button class="linklike" type="submit">Sign out</button></form>
         </div>
       </details>
     <?php else: ?>
@@ -80,7 +80,7 @@ function page_footer(bool $custom = false): void
   <div class="footer-bar"><span>© <?= date('Y') ?> Pawfee Shop. All rights reserved.</span><span>Good coffee. Great company. All paws welcome.</span></div>
 </footer>
 <?php endif; ?>
-<script src="<?= asset('js/app.js') ?>"></script>
+<script src="<?= asset('js/app.js') . '?v=' . filemtime(__DIR__.'/../assets/js/app.js') ?>"></script>
 </body>
 </html>
 <?php }
@@ -118,7 +118,7 @@ function admin_header(string $title, string $active): void
 <?php elseif (in_array($key,$allowed,true)): ?><a class="<?= $active===$key?'active':'' ?>" href="<?= url('admin',['section'=>$key]) ?>"><span class="admin-icon" aria-hidden="true"><?= $symbol ?></span><?= e($label) ?></a><?php endif; ?>
 <?php endforeach; ?>
 </nav>
-<div class="admin-profile"><small>Signed in as</small><strong><?= e($u['first_name'].' '.$u['last_name']) ?></strong><small><?= e(implode(', ',$u['roles'])) ?></small><a href="<?= url('home') ?>">View shop ↗</a><a href="<?= url('logout') ?>">Sign out</a></div>
+<div class="admin-profile"><small>Signed in as</small><strong><?= e($u['first_name'].' '.$u['last_name']) ?></strong><small><?= e(implode(', ',$u['roles'])) ?></small><a href="<?= url('home') ?>">View shop ↗</a><form method="post" action="<?= e(url('logout')) ?>"><?= csrf_field() ?><button class="linklike" type="submit">Sign out</button></form></div>
 </aside>
 <main class="admin-main"><header class="admin-heading"><div class="admin-breadcrumb">Workspace / <?= e($title) ?></div><h1><?= e($title) ?></h1><p class="muted"><?= e($descriptions[$active] ?? '') ?></p></header>
 <?php foreach (flashes() as [$type, $msg]): ?><div class="alert alert-<?= e($type) ?>"><?= e($msg) ?></div><?php endforeach;
@@ -126,7 +126,7 @@ function admin_header(string $title, string $active): void
 function admin_stats(array $stats): void { ?><div class="stat-grid"><?php foreach($stats as $label=>$value): ?><div class="stat"><span class="muted small"><?= e($label) ?></span><strong><?= e((string)$value) ?></strong></div><?php endforeach; ?></div><?php }
 function admin_footer(): void { ?>
 </main>
-<script src="<?= asset('js/app.js') ?>"></script>
+<script src="<?= asset('js/app.js') . '?v=' . filemtime(__DIR__.'/../assets/js/app.js') ?>"></script>
 </body></html>
 <?php }
 
@@ -144,7 +144,7 @@ function product_card(array $p): void
     <div class="card-foot">
       <strong class="price"><?= money($p['price']) ?></strong>
       <?php if ($p['stock'] > 0): ?>
-        <form method="post" action="<?= BASE_URL ?>/index.php?page=cart&action=add" data-ajax-cart>
+        <form method="post" action="<?= e(url('cart',['action'=>'add'])) ?>">
           <?= csrf_field() ?><input type="hidden" name="product_id" value="<?= (int)$p['id'] ?>"><input type="hidden" name="qty" value="1">
           <button class="btn btn-sm">Add to order</button>
         </form>

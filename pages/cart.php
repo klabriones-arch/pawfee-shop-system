@@ -5,6 +5,9 @@ $ajax   = ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch';
 if (is_post() && $action) {
     csrf_check();
     $msg = ''; $type = 'success';
+    $locked=false;
+    try {
+    if (in_array($action,['update','remove','coupon'],true)) { $cid=cart_id(); db()->beginTransaction(); $locked=true; q('SELECT id FROM carts WHERE id=? FOR UPDATE',[$cid]); }
     switch ($action) {
         case 'add':
             $err = cart_add((int)($_POST['product_id'] ?? 0), (array)($_POST['variant'] ?? []), (int)($_POST['qty'] ?? 1));
@@ -20,7 +23,7 @@ if (is_post() && $action) {
                     if ($qty+$other>(int)$item['stock']) { $msg='Requested quantity exceeds available stock.'; $type='error'; }
                     else q('UPDATE cart_items SET qty=? WHERE id=?', [$qty,$item['id']]);
                 }
-            }
+            } else { $msg='Cart item not found.'; $type='error'; }
             break;
         case 'remove':
             q('DELETE FROM cart_items WHERE id=? AND cart_id=?', [(int)($_POST['item_id'] ?? 0), cart_id()]);
@@ -30,10 +33,12 @@ if (is_post() && $action) {
             if (isset($_POST['clear'])) { q('UPDATE carts SET coupon_code=NULL WHERE id=?', [cart_id()]); break; }
             $t = cart_totals();
             [$c, , $err] = coupon_check(input('code'), $t['subtotal']);
+            if (!$c && !$err) $err='Enter a coupon code.';
             if ($err) { $msg = $err; $type = 'error'; }
             else { q('UPDATE carts SET coupon_code=? WHERE id=?', [$c['code'], cart_id()]); $msg = 'Coupon applied.'; }
             break;
-    }
+    default: $msg='Unknown cart action.'; $type='error';
+    } if ($locked) db()->commit(); } catch (Throwable $ex) { if ($locked && db()->inTransaction()) db()->rollBack(); error_log('Pawfee cart: '.$ex->getMessage()); $msg='Unable to update the cart. Please try again.'; $type='error'; }
     if ($ajax) { header('Content-Type: application/json'); echo json_encode(['ok' => $type === 'success', 'message' => $msg, 'count' => cart_count()]); exit; }
     if ($msg) flash($type, $msg);
     redirect(url('cart'));
@@ -53,10 +58,11 @@ page_header('Cart', 'cart');
         <img src="<?= e(product_image($i)) ?>" alt="">
         <div class="grow"><a href="<?= url('product', ['slug' => $i['slug']]) ?>"><strong><?= e($i['name']) ?></strong></a>
           <div class="muted small"><?= e($i['option_label']) ?></div>
+          <?php if ($i['status'] !== 'active'): ?><div class="small err">Unavailable — remove this item.</div><?php endif; ?>
           <?php if ($i['qty'] > $i['stock']): ?><div class="small err">Only <?= (int)$i['stock'] ?> in stock — please adjust.</div><?php endif; ?></div>
         <form method="post" action="<?= url('cart', ['action' => 'update']) ?>" class="qty" data-autosubmit-form>
           <?= csrf_field() ?><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>">
-          <button type="button" data-qty="-1">−</button><input type="number" name="qty" value="<?= (int)$i['qty'] ?>" min="0" max="<?= max(1, (int)$i['stock']) ?>"><button type="button" data-qty="1">+</button>
+          <button type="button" data-qty="-1">−</button><input type="number" name="qty" value="<?= (int)$i['qty'] ?>" min="0" max="<?= max(1, (int)$i['stock']) ?>"><button type="button" data-qty="1">+</button><noscript><button type="submit">Update</button></noscript>
         </form>
         <strong class="price"><?= money($i['unit_price'] * $i['qty']) ?></strong>
         <form method="post" action="<?= url('cart', ['action' => 'remove']) ?>"><?= csrf_field() ?><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="icon-btn" aria-label="Remove">Remove</button></form>

@@ -20,13 +20,17 @@
   /* ---- Add to cart without reloading ---- */
   $$('form[data-ajax-cart]').forEach(form => form.addEventListener('submit', async e => {
     e.preventDefault();
+    if (form.dataset.busy) return;
+    form.dataset.busy = '1';
+    const submit = $('button[type=submit],button:not([type])',form);
+    if(submit) submit.disabled=true;
     try {
       const res = await fetch(form.action, { method: 'POST', body: new FormData(form), headers: { 'X-Requested-With': 'fetch' } });
       const data = await res.json();
       toast(data.message, !data.ok);
       const badge = $('[data-cart-count]');
       if (badge && data.count !== undefined) { badge.textContent = data.count; badge.hidden = data.count < 1; }
-    } catch { form.submit(); }                       // graceful fallback
+    } catch { toast('Cart request failed. Refresh the cart before retrying.', true); } finally { delete form.dataset.busy; if(submit) submit.disabled=false; }
   }));
 
   /* ---- Product page: live price, thumbnails ---- */
@@ -35,6 +39,7 @@
     const update = () => {
       let price = Number($('[data-price]').dataset.base), labels = [];
       $$('input[type=radio]:checked', pf).forEach(r => { price += Number(r.dataset.delta || 0); labels.push(r.dataset.label); });
+      price = Math.max(0, Math.round(price*100)/100);
       const qty = Math.max(1, Number($('input[name=qty]', pf).value) || 1);
       $('[data-price]').textContent = money(price);
       $('[data-option-label]').textContent = labels.join(' · ');
@@ -49,11 +54,11 @@
 
   /* ---- Quantity steppers (product + cart) ---- */
   $$('.qty').forEach(q => $$('[data-qty]', q).forEach(btn => btn.addEventListener('click', () => {
-    const input = $('input', q), min = Number(input.min || 1), max = Number(input.max || 99);
+    const input = $('input[name=qty]', q); if (!input) return; const min = Number(input.min || 1), max = Number(input.max || 99);
     input.value = Math.min(max, Math.max(min, Number(input.value || 1) + Number(btn.dataset.qty)));
     if (q.matches('[data-autosubmit-form]')) q.submit();
   })));
-  $$('[data-autosubmit-form] input').forEach(i => i.addEventListener('change', () => i.form.submit()));
+  $$('[data-autosubmit-form] input[name=qty]').forEach(i => i.addEventListener('change', () => i.form.submit()));
   $$('[data-autosubmit]').forEach(s => s.addEventListener('change', () => s.form.submit()));
 
   /* ---- Confirm dialogs & double-submit guard ---- */
@@ -75,6 +80,7 @@
   $$('form[data-validate]').forEach(form => {
     form.addEventListener('input', e => clearError(e.target));
     form.addEventListener('submit', e => {
+      if (e.submitter?.formNoValidate) return;
       let firstBad = null;
       $$('input, select, textarea', form).forEach(f => {
         if (f.disabled || f.type === 'hidden' || f.closest('[hidden]') && !f.closest('[data-step]')) return;
