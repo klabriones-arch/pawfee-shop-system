@@ -1,4 +1,5 @@
 <?php
+if (!defined('PAWFEE_ADMIN_REQUEST')) { http_response_code(403); exit('Forbidden'); }
 $uid = (int)current_user()['id'];
 $id  = (int)($_GET['id'] ?? 0);
 if (is_post()) {

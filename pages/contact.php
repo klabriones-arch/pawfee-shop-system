@@ -2,8 +2,8 @@
 if (is_post()) {
     csrf_check();
     if (input('name') && filter_var(input('email'), FILTER_VALIDATE_EMAIL) && input('message')) {
-        notify(null, STORE_EMAIL, 'contact', 'Contact form: ' . input('name'), input('message') . "\n\nFrom: " . input('email'));
-        flash('success', 'Thanks! We got your message and will reply soon.');
+        $sent = notify(null, STORE_EMAIL, 'contact', 'Contact form: ' . input('name'), input('message') . "\n\nFrom: " . input('email'));
+        flash($sent ? 'success' : 'info', $sent ? 'Thanks! We got your message and will reply soon.' : 'Your message was saved, but email delivery is currently unavailable.');
         redirect(url('contact'));
     }
     flash('error', 'Please fill in your name, a valid email and a message.');

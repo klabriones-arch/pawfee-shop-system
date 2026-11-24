@@ -11,11 +11,15 @@ if (is_post() && $action) {
             $msg = $err ?: 'Added to your cart.'; $type = $err ? 'error' : 'success';
             break;
         case 'update':
-            $item = fetch_one('SELECT ci.id, p.stock FROM cart_items ci JOIN products p ON p.id=ci.product_id WHERE ci.id=? AND ci.cart_id=?', [(int)$_POST['item_id'], cart_id()]);
+            $item = fetch_one('SELECT ci.id, ci.product_id, p.stock FROM cart_items ci JOIN products p ON p.id=ci.product_id WHERE ci.id=? AND ci.cart_id=?', [(int)$_POST['item_id'], cart_id()]);
             if ($item) {
                 $qty = (int)($_POST['qty'] ?? 1);
                 if ($qty < 1) q('DELETE FROM cart_items WHERE id=?', [$item['id']]);
-                else q('UPDATE cart_items SET qty=? WHERE id=?', [min($qty, max(1, (int)$item['stock'])), $item['id']]);
+                else {
+                    $other=(int)fetch_val('SELECT COALESCE(SUM(qty),0) FROM cart_items WHERE cart_id=? AND product_id=? AND id<>?', [cart_id(),$item['product_id'],$item['id']]);
+                    if ($qty+$other>(int)$item['stock']) { $msg='Requested quantity exceeds available stock.'; $type='error'; }
+                    else q('UPDATE cart_items SET qty=? WHERE id=?', [$qty,$item['id']]);
+                }
             }
             break;
         case 'remove':
@@ -38,12 +42,12 @@ if (is_post() && $action) {
 $t = cart_totals();
 page_header('Cart', 'cart');
 ?>
-<div class="page-title"><h1>Your cart</h1></div>
+<div class="crumbs">Home / Cart</div><div class="row-between page-title"><h1>Your cart, full of good things.</h1><span class="badge"><?= cart_count() ?> items</span></div>
 <?php if (!$t['items']): ?>
   <div class="empty"><p>Your cart is empty. Let’s fix that.</p><a class="btn" href="<?= url('shop') ?>">Browse the menu</a></div>
 <?php else: ?>
 <div class="cart-layout">
-  <section class="card pad">
+  <section class="card pad"><div class="flow-cart-head"><span>Product</span><span>Quantity</span><span>Total</span></div>
     <?php foreach ($t['items'] as $i): ?>
       <div class="cart-row">
         <img src="<?= e(product_image($i)) ?>" alt="">
@@ -55,11 +59,11 @@ page_header('Cart', 'cart');
           <button type="button" data-qty="-1">−</button><input type="number" name="qty" value="<?= (int)$i['qty'] ?>" min="0" max="<?= max(1, (int)$i['stock']) ?>"><button type="button" data-qty="1">+</button>
         </form>
         <strong class="price"><?= money($i['unit_price'] * $i['qty']) ?></strong>
-        <form method="post" action="<?= url('cart', ['action' => 'remove']) ?>"><?= csrf_field() ?><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="icon-btn" aria-label="Remove">✕</button></form>
+        <form method="post" action="<?= url('cart', ['action' => 'remove']) ?>"><?= csrf_field() ?><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="icon-btn" aria-label="Remove">Remove</button></form>
       </div>
     <?php endforeach; ?>
-  </section>
-  <aside class="card pad summary">
+  <div class="row-between"><a href="<?= url('shop') ?>">← Continue shopping</a><small><?= count($t['items']) ?> products · <?= cart_count() ?> items</small></div></section>
+  <aside class="card pad summary flow-sage">
     <h3>Order summary</h3>
     <div class="line"><span>Subtotal</span><span><?= money($t['subtotal']) ?></span></div>
     <?php if ($t['coupon']): ?>
@@ -73,7 +77,7 @@ page_header('Cart', 'cart');
       <button class="btn btn-sm btn-ghost">Apply</button>
       <?php if ($t['coupon']): ?><button class="btn btn-sm btn-ghost" name="clear" value="1">Remove</button><?php endif; ?>
     </form>
-    <a class="btn btn-block" href="<?= url('checkout') ?>">Checkout</a>
+    <a class="btn btn-block" href="<?= url('checkout') ?>">Proceed to checkout →</a>
     <p class="muted small center">Pickup orders skip the delivery fee at checkout.</p>
   </aside>
 </div>

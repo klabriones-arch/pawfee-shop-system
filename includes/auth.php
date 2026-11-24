@@ -34,12 +34,12 @@ function login_user(array $u): void
 {
     session_regenerate_id(true);
     $_SESSION['uid'] = $u['id'];
+    attach_guest_cart((int)$u['id']);
     q('UPDATE users SET last_login=NOW() WHERE id=?', [$u['id']]);
 }
 function home_for(array $u): string
 {
     if (in_array('admin', $u['roles'], true) || in_array('staff', $u['roles'], true)) return url('admin');
-    if (in_array('courier', $u['roles'], true)) return url('courier');
     return url('account');
 }
 function unique_username(string $email): string

@@ -38,7 +38,7 @@ function place_order(array $user, array $d): int
 
         $sub = 0.0; $lines = [];
         foreach ($cart as $ci) {
-            $p = fetch_one('SELECT * FROM products WHERE id=? AND status="active" FOR UPDATE', [$ci['product_id']]);
+            $p = fetch_one('SELECT p.* FROM products p JOIN categories c ON c.id=p.category_id WHERE p.id=? AND p.status="active" AND c.status="active" FOR UPDATE', [$ci['product_id']]);
             if (!$p) throw new RuntimeException('An item in your cart is no longer available.');
             if ($p['stock'] < $ci['qty']) throw new RuntimeException("Only {$p['stock']} of {$p['name']} left in stock.");
             [, $label, $price] = resolve_variants($p, array_column(
@@ -51,6 +51,7 @@ function place_order(array $user, array $d): int
         if ($err) throw new RuntimeException($err);
         $fee   = $d['method'] === 'standard' ? DELIVERY_FEE : 0.0;
         $total = max(0, $sub - $discount + $fee);
+        if (isset($d['total']) && abs((float)$d['total']-$total)>0.005) throw new RuntimeException('Your cart total changed. Please review checkout again.');
         $no    = 'PF-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
 
         q('INSERT INTO orders (order_no,user_id,customer_name,customer_email,customer_phone,billing_address,shipping_address,delivery_method,subtotal,discount,delivery_fee,total,coupon_code,status)
@@ -95,6 +96,9 @@ function set_order_status(int $orderId, string $status, ?int $byUser, string $re
     $pdo->beginTransaction();
     try {
         q('UPDATE orders SET status=? WHERE id=?', [$status, $orderId]);
+        if ($o['delivery_method'] === 'standard' && in_array($status, ['Out for Delivery', 'Delivered', 'Failed'], true)) {
+            q('INSERT INTO shipments (order_id,status,attempts,remarks,delivered_at) VALUES (?,?,?, ?, IF(?="Delivered",NOW(),NULL)) ON DUPLICATE KEY UPDATE status=VALUES(status), attempts=attempts+VALUES(attempts), remarks=VALUES(remarks), delivered_at=VALUES(delivered_at)', [$orderId, $status, $status === 'Out for Delivery' ? 1 : 0, $remarks ?: null, $status]);
+        }
         q('INSERT INTO order_status_history (order_id,status,remarks,updated_by) VALUES (?,?,?,?)', [$orderId, $status, $remarks ?: null, $byUser]);
         $dead = ['Cancelled'];   // Failed deliveries can be retried, so only cancellations auto-restock
         if (in_array($status, $dead, true) && !in_array($o['status'], $dead, true))

@@ -1,5 +1,5 @@
 <?php
-$user = require_login();
+$user = require_role('customer');
 // Ownership check: customers can only ever load their own orders.
 $o = fetch_one('SELECT * FROM orders WHERE order_no=? AND user_id=?', [$_GET['no'] ?? '', $user['id']]);
 if (!$o) { http_response_code(404); page_header('Order'); echo '<div class="empty"><h1>Order not found</h1><a class="btn" href="' . url('account') . '">My orders</a></div>'; page_footer(); return; }
@@ -19,51 +19,16 @@ if (is_post() && ($canCancel || $canReturn) && !$activeReq) {
         notify_staff('return_request', "New $type request: {$o['order_no']}", "Reason: $reason");
         flash('success', 'Request submitted. We’ll review it soon.');
     }
-    redirect(url('order', ['no' => $o['order_no']]));
+    redirect(($_GET['from']??'')==='returns' ? url('returns') : url('order', ['no' => $o['order_no']]));
 }
 
-$items   = fetch_all('SELECT * FROM order_items WHERE order_id=?', [$o['id']]);
+$items = flow_order_items((int)$o['id']);
 $history = fetch_all('SELECT h.*, u.first_name FROM order_status_history h LEFT JOIN users u ON u.id=h.updated_by WHERE order_id=? ORDER BY h.id', [$o['id']]);
 $pay     = fetch_one('SELECT * FROM payments WHERE order_id=? ORDER BY id DESC LIMIT 1', [$o['id']]);
 $ship    = json_decode($o['shipping_address'] ?? '[]', true) ?: [];
 $reqs    = fetch_all('SELECT * FROM return_requests WHERE order_id=? ORDER BY id DESC', [$o['id']]);
-page_header('Order ' . $o['order_no'], 'account');
-?>
-<div class="crumbs"><a href="<?= url('account', ['tab' => 'orders']) ?>">← My orders</a></div>
-<div class="row-between"><h1>Order <?= e($o['order_no']) ?></h1><?= status_badge($o['status']) ?></div>
-<div class="two-col wide-left">
-  <div class="stack">
-    <section class="card pad"><h3>Items</h3>
-      <?php foreach ($items as $i): ?><div class="line"><span><?= (int)$i['qty'] ?> × <?= e($i['product_name']) ?><br><small class="muted"><?= e($i['variant_label']) ?></small></span><span><?= money($i['line_total']) ?></span></div><?php endforeach; ?>
-      <hr><div class="line"><span>Subtotal</span><span><?= money($o['subtotal']) ?></span></div>
-      <div class="line"><span>Discount</span><span>−<?= money($o['discount']) ?></span></div>
-      <div class="line"><span>Delivery fee</span><span><?= money($o['delivery_fee']) ?></span></div>
-      <div class="line total"><span>Total</span><span><?= money($o['total']) ?></span></div></section>
-    <section class="card pad"><h3>Delivery &amp; payment</h3>
-      <p class="muted small"><strong><?= $o['delivery_method'] === 'pickup' ? 'Store pickup' : 'Standard delivery' ?></strong><br>
-        <?= e($ship['recipient'] ?? '') ?> · <?= e($ship['phone'] ?? '') ?><br>
-        <?= e(trim(($ship['street'] ?? '') . ', ' . ($ship['barangay'] ?? '') . ', ' . ($ship['city'] ?? '') . ' ' . ($ship['province'] ?? '') . ' ' . ($ship['postal_code'] ?? ''), ' ,')) ?>
-        <?php if (!empty($ship['instructions'])): ?><br>Note: <?= e($ship['instructions']) ?><?php endif; ?></p>
-      <p class="muted small">Payment: <?= $pay['method'] === 'cod' ? 'Cash on Delivery' : 'Mock online payment' ?> · <?= status_badge(ucfirst($pay['status'])) ?></p></section>
-  </div>
-  <div class="stack">
-    <section class="card pad"><h3>Order tracking</h3>
-      <ol class="timeline"><?php foreach ($history as $h): ?>
-        <li><strong><?= e($h['status']) ?></strong><span class="muted small"><?= e(date('M j, Y g:i A', strtotime($h['created_at']))) ?><?= $h['first_name'] ? ' · ' . e($h['first_name']) : '' ?></span>
-          <?php if ($h['remarks']): ?><span class="small"><?= e($h['remarks']) ?></span><?php endif; ?></li>
-      <?php endforeach; ?></ol></section>
-
-    <?php foreach ($reqs as $r): ?><section class="card pad"><h3><?= e(ucfirst($r['type'])) ?> request <?= status_badge($r['status']) ?></h3>
-      <p class="muted small">Reason: <?= e($r['reason']) ?><?= $r['admin_remarks'] ? '<br>Our note: ' . e($r['admin_remarks']) : '' ?></p></section><?php endforeach; ?>
-
-    <?php if (($canCancel || $canReturn) && !$activeReq): ?>
-    <form method="post" class="card pad stack" data-validate novalidate><?= csrf_field() ?>
-      <h3><?= $canCancel ? 'Request cancellation' : 'Request a return / refund' ?></h3>
-      <label>Reason<select name="reason" required><option value="">Select a reason</option>
-        <?php foreach (($canCancel ? ['Ordered by mistake', 'Changed my mind', 'Found a better price', 'Delivery takes too long'] : ['Item arrived damaged', 'Wrong item received', 'Item not as described', 'Quality issue']) as $r): ?><option><?= e($r) ?></option><?php endforeach; ?></select></label>
-      <label>Description<textarea name="description" rows="3" placeholder="Tell us a little more"></textarea></label>
-      <button class="btn btn-danger">Submit request</button></form>
-    <?php endif; ?>
-  </div>
-</div>
-<?php page_footer();
+page_header('Order ' . $o['order_no'], 'orders'); ?>
+<div class="row-between crumbs"><span>Home / Account / Order history / Order details</span><a href="<?= url('orders') ?>">← Back to order history</a></div><div class="row-between"><h1>Order #<?= e($o['order_no']) ?></h1><?php if(($canCancel||$canReturn)&&!$activeReq): ?><a class="btn btn-ghost" href="<?= url('returns',['no'=>$o['order_no']]) ?>">Cancel / return order</a><?php endif; ?></div>
+<div class="flow-account-layout"><?php account_nav($user,'orders',true); ?><div class="stack flow-account-content"><section class="card pad flow-sage"><h3>Your order is <?= e(strtolower($o['status'])) ?></h3><?php $stages=['Order confirmed'=>['Confirmed'],'Preparing'=>['Processing','Packed'],'Out for delivery'=>['Shipped','Out for Delivery'],'Delivered'=>['Delivered']]; $level=-1; foreach(array_values($stages) as $n=>$statuses) if(in_array($o['status'],$statuses,true)) $level=$n; ?><div class="flow-track"><?php foreach($stages as $label=>$statuses): $n=array_search($label,array_keys($stages));$event=null;foreach($history as $h) if(in_array($h['status'],$statuses,true)) $event=$h; ?><div class="<?= $level>=$n?'reached':'' ?>"><span><?= $level>=$n?'✓':$n+1 ?></span><strong><?= e($o['delivery_method']==='pickup'&&$n===2?'Ready / fulfillment':$label) ?></strong><small><?= $event?e(date('d M · g:i A',strtotime($event['created_at']))):($level>=$n?'Completed':'Pending') ?></small></div><?php endforeach; ?></div></section>
+<div class="two-col wide-left"><section class="card pad"><div class="row-between"><h3>Purchased products</h3><small><?= array_sum(array_column($items,'qty')) ?> items</small></div><?php flow_items($items);flow_totals($o); ?></section><div class="stack"><section class="card pad"><h3>Shipping details</h3><strong><?= e($ship['recipient']??$o['customer_name']) ?></strong><p><?= e(implode(', ',array_filter([$ship['street']??'',$ship['barangay']??'',$ship['city']??'',$ship['province']??'',$ship['postal_code']??'']))) ?><br><?= e($ship['phone']??'') ?></p><hr><strong><?= $o['delivery_method']==='pickup'?'Café pickup':'Standard delivery' ?></strong></section><section class="card pad"><h3>Order information</h3><div class="line"><span>Placed</span><span><?= e(date('d M Y · g:i A',strtotime($o['created_at']))) ?></span></div><div class="line"><span>Payment method</span><span><?= ($pay['method']??'')==='cod'?'Cash on delivery':'Mock online payment' ?></span></div><div class="line"><?= status_badge(ucfirst($pay['status']??'pending')) ?><strong><?= money($o['total']) ?></strong></div></section></div></div>
+<?php foreach($reqs as $r): ?><section class="card pad"><h3><?= e(ucfirst($r['type'])) ?> request <?= status_badge($r['status']) ?></h3><p><?= e($r['reason']) ?> · <?= e($r['admin_remarks']??'') ?></p></section><?php endforeach; ?><details class="card pad"><summary>Order activity</summary><ol class="timeline"><?php foreach($history as $h): ?><li><strong><?= e($h['status']) ?></strong><small><?= e($h['created_at']) ?> · <?= e($h['remarks']) ?></small></li><?php endforeach; ?></ol></details></div></div><?php page_footer();

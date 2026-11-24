@@ -16,7 +16,7 @@ function page_header(string $title, string $active = '', bool $wide = false): vo
     $u = current_user();
     $nav = [
         'home' => 'Home', 'shop' => 'Shop', 'categories' => 'Categories',
-        'account' => 'My Orders', 'about' => 'About us', 'contact' => 'Contact',
+        'orders' => 'My Orders', 'about' => 'About us', 'contact' => 'Contact',
     ];
     if (!$u) unset($nav['account']);
     ?><!DOCTYPE html>
@@ -28,6 +28,7 @@ function page_header(string $title, string $active = '', bool $wide = false): vo
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= asset('css/style.css') ?>">
+<link rel="stylesheet" href="<?= asset('css/customer-flow.css') ?>">
 </head>
 <body>
 <header class="site-header">
@@ -35,7 +36,7 @@ function page_header(string $title, string $active = '', bool $wide = false): vo
   <button class="nav-toggle" aria-label="Menu" data-nav-toggle>☰</button>
   <nav class="main-nav" data-nav>
     <?php foreach ($nav as $key => $label): ?>
-      <a href="<?= $key === 'account' ? url('account', ['tab' => 'orders']) : url($key) ?>" class="<?= $active === $key ? 'active' : '' ?>"><?= e($label) ?></a>
+      <a href="<?= url($key) ?>" class="<?= $active === $key ? 'active' : '' ?>"><?= e($label) ?></a>
     <?php endforeach; ?>
   </nav>
   <div class="header-actions">
@@ -46,7 +47,7 @@ function page_header(string $title, string $active = '', bool $wide = false): vo
         <summary class="round-btn" aria-label="Account"><?= icon('user') ?></summary>
         <div class="menu">
           <span class="muted small">Hi, <?= e($u['first_name']) ?></span>
-          <a href="<?= home_for($u) ?>"><?= has_role('admin', 'staff', 'courier') ? 'Dashboard' : 'My account' ?></a>
+          <a href="<?= home_for($u) ?>"><?= has_role('admin', 'staff') ? 'Dashboard' : 'My account' ?></a>
           <a href="<?= url('logout') ?>">Sign out</a>
         </div>
       </details>
@@ -88,35 +89,41 @@ function page_footer(bool $custom = false): void
 function admin_header(string $title, string $active): void
 {
     $u = current_user();
-    $menu = [
-        'dashboard' => ['Dashboard', ['admin', 'staff']], 'products' => ['Products', ['admin']],
-        'categories' => ['Categories', ['admin']], 'inventory' => ['Inventory', ['admin', 'staff']],
-        'orders' => ['Orders', ['admin', 'staff']], 'customers' => ['Customers', ['admin']],
-        'returns' => ['Returns', ['admin']], 'reports' => ['Reports', ['admin']],
-        'staff' => ['Staff', ['admin']], 'settings' => ['Coupons', ['admin']],
+    $groups = [
+        ['Dashboard','dashboard','▦',[]],
+        ['Products','products','▣',['products'=>'All Products','categories'=>'Categories','inventory'=>'Inventory']],
+        ['Orders','orders','▤',['orders'=>'All Orders','fulfillment'=>'Fulfillment & Delivery','returns'=>'Returns & Refunds']],
+        ['Customers','customers','♙',[]], ['Employees','staff','♟',[]],
+        ['Reports & Analytics','reports','▥',[]], ['Settings','settings','⚙',[]],
     ];
+    $allowed = has_role('admin') ? ['dashboard','products','categories','inventory','orders','fulfillment','returns','customers','staff','reports','settings'] : ['dashboard','inventory','orders','fulfillment'];
+    $descriptions = ['dashboard'=>'Monitor store activity, sales and orders at a glance.','products'=>'Manage your product catalog, pricing and availability.','categories'=>'Organize your products into collections.','inventory'=>'Track available stock and inventory adjustments.','orders'=>'Review and manage customer orders.','fulfillment'=>'Manage packing, shipping and delivery updates.','returns'=>'Review requests and reconcile returns and refunds.','customers'=>'Manage customer accounts and order history.','staff'=>'Manage employee accounts and access.','reports'=>'A clear view of sales and stock performance.','settings'=>'Manage store coupons and preferences.'];
     ?><!DOCTYPE html>
 <html lang="en"><head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title><?= e($title) ?> · Pawfee Admin</title>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="<?= asset('css/style.css') ?>">
-</head>
-<body class="admin-body">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title><?= e($title) ?> · Pawfee Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<?= asset('css/style.css') ?>">
+<link rel="stylesheet" href="<?= asset('css/admin.css') ?>">
+</head><body class="admin-body">
 <aside class="admin-side">
-  <a class="brand" href="<?= url('home') ?>"><img src="<?= logo_url() ?>" alt="Pawfee Shop"></a>
-  <nav>
-    <?php foreach ($menu as $key => [$label, $roles]): if (!array_intersect($roles, $u['roles'])) continue; ?>
-      <a href="<?= url('admin', ['section' => $key]) ?>" class="<?= $active === $key ? 'active' : '' ?>"><?= e($label) ?></a>
-    <?php endforeach; ?>
-    <a href="<?= url('home') ?>">← View shop</a>
-    <a href="<?= url('logout') ?>">Sign out</a>
-  </nav>
+<a class="admin-brand" href="<?= url('admin') ?>"><img src="<?= logo_url() ?>" alt="Pawfee Shop"><span><strong>Pawfee Shop</strong><small>ADMIN CONSOLE</small></span></a>
+<div class="admin-workspace">WORKSPACE</div>
+<nav aria-label="Admin navigation">
+<?php foreach ($groups as [$label,$key,$symbol,$children]): ?>
+<?php if ($children): $visible=array_intersect_key($children,array_flip($allowed)); if (!$visible) continue; ?>
+<details class="admin-group" <?= isset($children[$active]) ? 'open' : '' ?>><summary class="<?= isset($children[$active]) ? 'active' : '' ?>"><span class="admin-icon" aria-hidden="true"><?= $symbol ?></span><?= e($label) ?><span class="admin-chevron">⌄</span></summary><div class="admin-subnav">
+<?php foreach ($visible as $route=>$child): ?><a class="<?= $active===$route?'active':'' ?>" href="<?= url('admin',['section'=>$route]) ?>"><?= e($child) ?></a><?php endforeach; ?>
+</div></details>
+<?php elseif (in_array($key,$allowed,true)): ?><a class="<?= $active===$key?'active':'' ?>" href="<?= url('admin',['section'=>$key]) ?>"><span class="admin-icon" aria-hidden="true"><?= $symbol ?></span><?= e($label) ?></a><?php endif; ?>
+<?php endforeach; ?>
+</nav>
+<div class="admin-profile"><small>Signed in as</small><strong><?= e($u['first_name'].' '.$u['last_name']) ?></strong><small><?= e(implode(', ',$u['roles'])) ?></small><a href="<?= url('home') ?>">View shop ↗</a><a href="<?= url('logout') ?>">Sign out</a></div>
 </aside>
-<main class="admin-main">
-  <h1><?= e($title) ?></h1>
-  <?php foreach (flashes() as [$type, $msg]): ?><div class="alert alert-<?= e($type) ?>"><?= e($msg) ?></div><?php endforeach;
+<main class="admin-main"><header class="admin-heading"><div class="admin-breadcrumb">Workspace / <?= e($title) ?></div><h1><?= e($title) ?></h1><p class="muted"><?= e($descriptions[$active] ?? '') ?></p></header>
+<?php foreach (flashes() as [$type, $msg]): ?><div class="alert alert-<?= e($type) ?>"><?= e($msg) ?></div><?php endforeach;
 }
+function admin_stats(array $stats): void { ?><div class="stat-grid"><?php foreach($stats as $label=>$value): ?><div class="stat"><span class="muted small"><?= e($label) ?></span><strong><?= e((string)$value) ?></strong></div><?php endforeach; ?></div><?php }
 function admin_footer(): void { ?>
 </main>
 <script src="<?= asset('js/app.js') ?>"></script>

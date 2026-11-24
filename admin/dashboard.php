@@ -1,4 +1,5 @@
 <?php
+if (!defined('PAWFEE_ADMIN_REQUEST')) { http_response_code(403); exit('Forbidden'); }
 $VALID = "o.status NOT IN ('Cancelled','Failed','Refunded')";
 $stats = [
     'Total sales'     => money(fetch_val("SELECT COALESCE(SUM(total),0) FROM orders o WHERE $VALID")),

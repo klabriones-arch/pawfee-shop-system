@@ -13,6 +13,11 @@ function send_verification_code(array $u): string
     $code = (string)random_int(100000, 999999);
     q('DELETE FROM email_verifications WHERE user_id=?', [$u['id']]);
     q('INSERT INTO email_verifications (user_id,code_hash,expires_at) VALUES (?,?,DATE_ADD(NOW(), INTERVAL 15 MINUTE))', [$u['id'], password_hash($code, PASSWORD_DEFAULT)]);
-    notify((int)$u['id'], $u['email'], 'verification', 'Your Pawfee verification code', "Your 6-digit code is $code. It expires in 15 minutes.");
+    $sent = notify((int)$u['id'], $u['email'], 'verification', 'Your Pawfee verification code', "Your 6-digit code is $code. It expires in 15 minutes.");
+    if (!$sent && MAIL_DRIVER === 'smtp') {
+        flash('error', 'Email could not be sent. Please try Resend code or contact the shop.');
+    } elseif ($sent) {
+        flash('success', 'Verification code sent.');
+    }
     return $code;
 }

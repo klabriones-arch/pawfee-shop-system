@@ -1,4 +1,5 @@
 <?php
+if (!defined('PAWFEE_ADMIN_REQUEST')) { http_response_code(403); exit('Forbidden'); }
 $from = $_GET['from'] ?? date('Y-m-d', strtotime('-29 days'));
 $to   = $_GET['to']   ?? date('Y-m-d');
 $by   = in_array($_GET['by'] ?? '', ['day', 'week', 'month'], true) ? $_GET['by'] : 'day';
@@ -11,7 +12,7 @@ $best = fetch_all("SELECT oi.product_name, SUM(oi.qty) qty, SUM(oi.line_total) r
 $cancelled = fetch_all('SELECT order_no, customer_name, total, created_at FROM orders WHERE status="Cancelled" AND DATE(created_at) BETWEEN ? AND ? ORDER BY id DESC', $r);
 $refunds   = fetch_all('SELECT r.*, o.order_no FROM refunds r JOIN orders o ON o.id=r.order_id WHERE DATE(r.created_at) BETWEEN ? AND ? ORDER BY r.id DESC', $r);
 $inventory = fetch_all('SELECT name, sku, stock, low_stock_threshold FROM products WHERE status="active" ORDER BY stock');
-admin_header('Reports', 'reports'); ?>
+admin_header('Reports & analytics', 'reports'); ?>
 <form class="filters-bar card pad row" method="get"><input type="hidden" name="page" value="admin"><input type="hidden" name="section" value="reports">
   <label class="inline">From <input type="date" name="from" value="<?= e($from) ?>"></label><label class="inline">To <input type="date" name="to" value="<?= e($to) ?>"></label>
   <select name="by"><?php foreach (['day' => 'Daily', 'week' => 'Weekly', 'month' => 'Monthly'] as $k => $l): ?><option value="<?= $k ?>" <?= selected($by, $k) ?>><?= $l ?> sales</option><?php endforeach; ?></select><button class="btn btn-sm">Run report</button></form>

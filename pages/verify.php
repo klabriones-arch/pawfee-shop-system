@@ -8,7 +8,6 @@ if (is_post()) {
     csrf_check();
     if (isset($_POST['resend'])) {
         $code = send_verification_code($u);
-        flash('success', 'A new code is on its way.');
         if (APP_DEBUG) flash('info', "Dev mode: your verification code is $code");
         redirect(url('verify'));
     }

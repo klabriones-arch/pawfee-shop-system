@@ -1,7 +1,7 @@
 <?php
 $user = require_login();
 $pending = $_SESSION['pending_checkout'] ?? null;
-if (!$pending) redirect(url('cart'));
+if (!$pending || (int)($pending['user_id'] ?? 0) !== (int)$user['id']) redirect(url('cart'));
 
 if (is_post()) {
     csrf_check();
@@ -9,11 +9,14 @@ if (is_post()) {
     unset($_SESSION['pending_checkout']);               // single use = no duplicate orders
     if ($result === 'success') {
         try {
+            $current=cart_totals($pending['method']);
+            $signature=hash('sha256',json_encode(array_map(fn($i)=>[$i['product_id'],$i['variant_ids'],$i['qty'],$i['unit_price']],$current['items'])));
+            if(!hash_equals($pending['cart_signature']??'', $signature)) throw new RuntimeException('Your cart changed. Please review checkout again.');
             $pending['payment_status'] = 'paid';
             $oid = place_order($user, $pending);
             $no  = fetch_val('SELECT order_no FROM orders WHERE id=?', [$oid]);
             flash('success', "Payment successful. Order $no placed!");
-            redirect(url('order', ['no' => $no]));
+            redirect(url('confirmation', ['no' => $no]));
         } catch (RuntimeException $e) { flash('error', $e->getMessage()); redirect(url('cart')); }
     }
     flash($result === 'cancel' ? 'info' : 'error', $result === 'cancel' ? 'Payment cancelled. Your cart is still saved.' : 'Payment failed. No charge was made — please try again.');

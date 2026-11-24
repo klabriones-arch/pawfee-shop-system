@@ -1,4 +1,5 @@
 <?php
+if (!defined('PAWFEE_ADMIN_REQUEST')) { http_response_code(403); exit('Forbidden'); }
 if (is_post()) {
     csrf_check();
     $do = $_POST['do'] ?? ''; $id = (int)($_POST['id'] ?? 0);

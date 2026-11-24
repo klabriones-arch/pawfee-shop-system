@@ -42,5 +42,4 @@ product variants with live price, DB-backed cart (30-day cookie), checkout with 
 mock payment (success / failure / cancel), order timeline, cancel/return requests, refunds, inventory log with negative-stock guard,
 admin CRUD + reports, courier workflow, notifications stored in DB (preview at `?page=mail`).
 
-Notes: "Inventory" is `products.stock` + `inventory_transactions`. To go live with email, set `MAIL_DRIVER` to `smtp` and implement
-`smtp_send()` in `includes/mailer.php` (e.g. PHPMailer). Passwords use `password_hash`; all queries use prepared statements; output is escaped; forms use CSRF tokens.
+Notes: "Inventory" is `products.stock` + `inventory_transactions`. SMTP email is implemented using Brevo SMTP and PHPMailer; see [EMAIL-SETUP.md](EMAIL-SETUP.md) for dependency installation, private credentials, and testing. Passwords use `password_hash`; all queries use prepared statements; output is escaped; forms use CSRF tokens.

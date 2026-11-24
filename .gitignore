@@ -1,2 +1,6 @@
 uploads/products/*
 !uploads/.htaccess
+
+/includes/mail.local.php
+/vendor/
+/.vs/

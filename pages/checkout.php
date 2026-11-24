@@ -27,14 +27,14 @@ if (is_post()) {
 
     $method = ($_POST['delivery_method'] ?? '') === 'pickup' ? 'pickup' : 'standard';
     $same   = !empty($_POST['same_address']);
-    $name = input('name'); $email = strtolower(input('email')); $phone = input('phone');
-    if ($name === '') $err[] = 'Enter your full name.';
+    $name = trim(input('first_name').' '.input('last_name')); $email = strtolower(input('email')); $phone = input('phone');
+    if (input('first_name') === '' || input('last_name') === '') $err[] = 'Enter your full name.';
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $err[] = 'Enter a valid email address.';
     if (!preg_match('/^[0-9+\-\s()]{7,20}$/', $phone)) $err[] = 'Enter a valid phone number.';
 
     $billing  = addr_from_post('bill');
     $shipping = addr_from_post('ship', ['recipient', 'phone', 'instructions']);
-    if ($same) $shipping = array_merge($shipping, $billing);
+    if ($same) $billing = array_intersect_key($shipping, array_flip($addrFields));
     $shipping['recipient'] = $shipping['recipient'] ?: $name;
     $shipping['phone']     = $shipping['phone'] ?: $phone;
     $needAddr = fn(array $a) => array_filter($a, fn($v, $k) => in_array($k, ['street', 'barangay', 'city', 'province', 'postal_code']) && $v === '', ARRAY_FILTER_USE_BOTH);
@@ -44,14 +44,16 @@ if (is_post()) {
     } else {
         $shipping = ['recipient' => $name, 'phone' => $phone, 'street' => 'Store pickup', 'barangay' => '', 'city' => STORE_ADDRESS, 'province' => '', 'postal_code' => '', 'instructions' => $shipping['instructions']];
     }
-    $payMethod = ($_POST['payment_method'] ?? '') === 'mock_online' ? 'mock_online' : 'cod';
+    $payMethod = in_array($_POST['payment_method'] ?? '', ['card','wallet'], true) ? 'mock_online' : 'cod';
 
     // Optional coupon typed at checkout
     if (input('coupon') !== '') {
         [$c, , $cErr] = coupon_check(input('coupon'), $t['subtotal']);
         if ($cErr) $err[] = $cErr; else q('UPDATE carts SET coupon_code=? WHERE id=?', [$c['code'], cart_id()]);
     }
-    foreach ($t['items'] as $i) if ($i['qty'] > $i['stock'] || $i['status'] !== 'active') $err[] = "{$i['name']} is no longer available in that quantity.";
+    if (!$t['items']) $err[]='Your cart is empty.';
+    $quantities=[]; foreach ($t['items'] as $i) $quantities[$i['product_id']]=($quantities[$i['product_id']]??0)+(int)$i['qty'];
+    foreach ($t['items'] as $i) if ($quantities[$i['product_id']] > $i['stock'] || $i['status'] !== 'active') $err[] = "{$i['name']} is no longer available in that quantity.";
 
     if (!$err) {
         $t = cart_totals($method);
@@ -59,13 +61,13 @@ if (is_post()) {
                  'coupon' => $t['coupon']['code'] ?? '', 'payment_method' => $payMethod, 'payment_status' => 'pending'];
         try {
             if ($payMethod === 'mock_online') {
-                $_SESSION['pending_checkout'] = $data + ['total' => $t['total']];
+                $_SESSION['pending_checkout'] = $data + ['total' => $t['total'], 'user_id' => $user['id'], 'cart_signature'=>hash('sha256',json_encode(array_map(fn($i)=>[$i['product_id'],$i['variant_ids'],$i['qty'],$i['unit_price']],$t['items'])))];
                 redirect(url('mockpay'));
             }
             $oid = place_order($user, $data);
             $no  = fetch_val('SELECT order_no FROM orders WHERE id=?', [$oid]);
             flash('success', "Order $no placed. Thank you!");
-            redirect(url('order', ['no' => $no]));
+            redirect(url('confirmation', ['no' => $no]));
         } catch (RuntimeException $e) { $err[] = $e->getMessage(); }
     }
 }
@@ -74,57 +76,23 @@ $t = cart_totals($_POST['delivery_method'] ?? 'standard');
 $v = fn($k, $d = '') => e($_POST[$k] ?? $d);
 page_header('Checkout', 'checkout');
 ?>
-<div class="page-title"><h1>Checkout</h1></div>
+<div class="crumbs">Home / Cart / Checkout</div>
+<div class="row-between page-title"><h1>One last step to something good.</h1><small>Cart → Checkout → Confirmation</small></div>
 <?php foreach ($err as $m): ?><div class="alert alert-error"><?= e($m) ?></div><?php endforeach; ?>
-<form method="post" class="cart-layout" data-validate data-checkout novalidate>
-  <?= csrf_field() ?><input type="hidden" name="checkout_token" value="<?= $_SESSION['checkout_token'] ?>">
-  <div class="stack">
-    <section class="card pad stack"><h3>1 · Customer information</h3>
-      <label>Full name<input name="name" required value="<?= $v('name', $user['first_name'] . ' ' . $user['last_name']) ?>"></label>
-      <div class="row"><label>Email<input type="email" name="email" required value="<?= $v('email', $user['email']) ?>"></label>
-      <label>Phone<input name="phone" required value="<?= $v('phone', $user['phone']) ?>"></label></div></section>
-
-    <section class="card pad stack"><h3>2 · Billing address</h3>
-      <label>Street<input name="bill_street" required value="<?= $v('bill_street', $default['street'] ?? '') ?>"></label>
-      <div class="row"><label>Barangay<input name="bill_barangay" required value="<?= $v('bill_barangay', $default['barangay'] ?? '') ?>"></label>
-      <label>City<input name="bill_city" required value="<?= $v('bill_city', $default['city'] ?? '') ?>"></label></div>
-      <div class="row"><label>Province<input name="bill_province" required value="<?= $v('bill_province', $default['province'] ?? '') ?>"></label>
-      <label>Postal code<input name="bill_postal_code" required value="<?= $v('bill_postal_code', $default['postal_code'] ?? '') ?>"></label></div></section>
-
-    <section class="card pad stack"><h3>3 · Delivery method</h3>
-      <label class="option-card"><input type="radio" name="delivery_method" value="standard" data-fee="<?= DELIVERY_FEE ?>" <?= ($_POST['delivery_method'] ?? 'standard') === 'standard' ? 'checked' : '' ?>> <span><strong>Standard delivery</strong><small><?= money(DELIVERY_FEE) ?> · to your address</small></span></label>
-      <label class="option-card"><input type="radio" name="delivery_method" value="pickup" data-fee="0" <?= ($_POST['delivery_method'] ?? '') === 'pickup' ? 'checked' : '' ?>> <span><strong>Store pickup</strong><small>Free · <?= e(STORE_ADDRESS) ?></small></span></label>
-      <div data-shipping>
-        <h4>Shipping address</h4>
-        <label class="check"><input type="checkbox" name="same_address" value="1" data-same <?= !is_post() || !empty($_POST['same_address']) ? 'checked' : '' ?>> Same as billing address</label>
-        <div class="stack" data-ship-fields>
-          <div class="row"><label>Recipient<input name="ship_recipient" value="<?= $v('ship_recipient', $default['recipient'] ?? '') ?>"></label>
-          <label>Phone<input name="ship_phone" value="<?= $v('ship_phone', $default['phone'] ?? '') ?>"></label></div>
-          <label>Street<input name="ship_street" value="<?= $v('ship_street') ?>"></label>
-          <div class="row"><label>Barangay<input name="ship_barangay" value="<?= $v('ship_barangay') ?>"></label><label>City<input name="ship_city" value="<?= $v('ship_city') ?>"></label></div>
-          <div class="row"><label>Province<input name="ship_province" value="<?= $v('ship_province') ?>"></label><label>Postal code<input name="ship_postal_code" value="<?= $v('ship_postal_code') ?>"></label></div>
-        </div>
-        <label>Delivery instructions<textarea name="ship_instructions" rows="2" placeholder="Gate code, landmarks, etc."><?= $v('ship_instructions') ?></textarea></label>
-      </div></section>
-
-    <section class="card pad stack"><h3>4 · Payment</h3>
-      <label class="option-card"><input type="radio" name="payment_method" value="cod" <?= ($_POST['payment_method'] ?? 'cod') === 'cod' ? 'checked' : '' ?>> <span><strong>Cash on Delivery</strong><small>Pay when you receive or pick up</small></span></label>
-      <label class="option-card"><input type="radio" name="payment_method" value="mock_online" <?= ($_POST['payment_method'] ?? '') === 'mock_online' ? 'checked' : '' ?>> <span><strong>Mock Online Payment</strong><small>Demo gateway — no real card details</small></span></label></section>
-  </div>
-
-  <aside class="card pad summary">
-    <h3>Order summary</h3>
-    <?php foreach ($t['items'] as $i): ?>
-      <div class="line"><span><?= (int)$i['qty'] ?> × <?= e($i['name']) ?><br><small class="muted"><?= e($i['option_label']) ?></small></span><span><?= money($i['unit_price'] * $i['qty']) ?></span></div>
-    <?php endforeach; ?>
-    <hr>
-    <div class="line"><span>Subtotal</span><span data-sub="<?= $t['subtotal'] ?>"><?= money($t['subtotal']) ?></span></div>
-    <div class="line"><span>Discount<?= $t['coupon'] ? ' (' . e($t['coupon']['code']) . ')' : '' ?></span><span data-disc="<?= $t['discount'] ?>">−<?= money($t['discount']) ?></span></div>
-    <div class="line"><span>Delivery fee</span><span data-fee-out><?= money($t['delivery_fee']) ?></span></div>
-    <div class="line total"><span>Grand total</span><span data-grand><?= money($t['total']) ?></span></div>
-    <label>Coupon code<input name="coupon" value="<?= e($_POST['coupon'] ?? ($t['coupon']['code'] ?? '')) ?>" placeholder="e.g. PAWS10"></label>
-    <button class="btn btn-block" data-once>Place order</button>
-  </aside>
-</form>
-<script>window.CURRENCY = <?= json_encode(CURRENCY) ?>;</script>
+<form method="post" class="cart-layout" id="flow-checkout">
+<?= csrf_field() ?><input type="hidden" name="checkout_token" value="<?= e($_SESSION['checkout_token']) ?>">
+<div class="stack">
+<section class="card pad stack"><h3>1. Billing information</h3><div class="row"><label>First name *<input name="first_name" required value="<?= $v('first_name',$user['first_name']) ?>"></label><label>Last name *<input name="last_name" required value="<?= $v('last_name',$user['last_name']) ?>"></label></div><div class="row"><label>Email address *<input type="email" name="email" required value="<?= $v('email',$user['email']) ?>"></label><label>Phone number *<input name="phone" required value="<?= $v('phone',$user['phone']) ?>"></label></div></section>
+<section class="card pad stack"><h3>2. Shipping address</h3>
+<?php foreach (['ship'=>'Shipping','bill'=>'Billing'] as $prefix=>$label): ?>
+<div class="stack" <?= $prefix==='bill'?'id="flow-billing"':'' ?>><?php if($prefix==='bill'): ?><h4>Separate billing address</h4><?php endif; ?>
+<div class="row"><label>Street address *<input name="<?= $prefix ?>_street" required value="<?= $v($prefix.'_street',$default['street']??'') ?>"></label><label>Barangay *<input name="<?= $prefix ?>_barangay" required value="<?= $v($prefix.'_barangay',$default['barangay']??'') ?>"></label></div><div class="row"><?php foreach(['city'=>'City','province'=>'Province','postal_code'=>'Postal code'] as $k=>$l): ?><label><?= $l ?> *<input name="<?= $prefix.'_'.$k ?>" required value="<?= $v($prefix.'_'.$k,$default[$k]??'') ?>"></label><?php endforeach; ?><label>Country<input value="Philippines" readonly></label></div></div>
+<?php if($prefix==='ship'): ?><label class="check"><input type="checkbox" name="same_address" value="1" <?= !is_post()||!empty($_POST['same_address'])?'checked':'' ?>> Use this shipping address as my billing address</label><?php endif; endforeach; ?>
+<label>Delivery instructions (optional)<textarea name="ship_instructions" rows="2"><?= $v('ship_instructions') ?></textarea></label></section>
+<section class="card pad stack"><h3>3. Delivery options</h3><div class="flow-options"><?php foreach(['standard'=>'Standard delivery','pickup'=>'Café pickup'] as $k=>$l): ?><label class="option-card"><input type="radio" name="delivery_method" value="<?= $k ?>" data-fee="<?= $k==='standard'?DELIVERY_FEE:0 ?>" <?= ($_POST['delivery_method']??'standard')===$k?'checked':'' ?>><span><strong><?= $l ?></strong><small><?= $k==='standard'?money(DELIVERY_FEE):'Free' ?></small></span></label><?php endforeach; ?></div></section>
+<section class="card pad stack"><h3>4. Payment method</h3><div class="flow-options"><?php foreach(['card'=>'Credit / debit card (mock)','wallet'=>'Digital wallet (mock)','cod'=>'Cash on delivery'] as $k=>$l): ?><label class="option-card"><input type="radio" name="payment_method" value="<?= $k ?>" <?= ($_POST['payment_method']??'cod')===$k?'checked':'' ?>><span><?= $l ?></span></label><?php endforeach; ?></div><p class="muted small">Online methods are simulated; no real payment details are collected.</p></section></div>
+<aside class="card pad summary flow-sage"><div class="row-between"><h3>Order summary</h3><a href="<?= url('cart') ?>">Edit cart</a></div><small><?= count($t['items']) ?> products · <?= cart_count() ?> items</small>
+<?php foreach($t['items'] as $i): ?><div class="flow-item"><img src="<?= e(product_image($i)) ?>" alt=""><div class="grow"><strong><?= e($i['name']) ?></strong><small><?= e($i['option_label']) ?><br><?= (int)$i['qty'] ?> × <?= money($i['unit_price']) ?></small></div><strong><?= money($i['unit_price']*$i['qty']) ?></strong></div><?php endforeach; ?>
+<div class="line"><span>Subtotal</span><span><?= money($t['subtotal']) ?></span></div><div class="line"><span>Discount</span><span>−<?= money($t['discount']) ?></span></div><div class="line"><span>Delivery fee</span><span id="flow-fee"><?= money($t['delivery_fee']) ?></span></div><div class="line total"><span>Total</span><span id="flow-total"><?= money($t['total']) ?></span></div><button class="btn btn-block" data-once id="flow-place">Place order · <?= money($t['total']) ?></button></aside></form>
+<script>const cf=document.getElementById('flow-checkout');function syncFlow(){const same=cf.elements.same_address.checked,b=document.getElementById('flow-billing');b.hidden=same;b.querySelectorAll('input').forEach(i=>i.disabled=same);const fee=Number(cf.querySelector('[name=delivery_method]:checked').dataset.fee), total=Math.max(0,<?= json_encode($t['subtotal']-$t['discount']) ?>+fee),fmt=n=><?= json_encode(CURRENCY) ?>+n.toFixed(2);document.getElementById('flow-fee').textContent=fmt(fee);document.getElementById('flow-total').textContent=fmt(total);document.getElementById('flow-place').textContent='Place order · '+fmt(total);}cf.addEventListener('change',syncFlow);syncFlow();</script>
 <?php page_footer();
