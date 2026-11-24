@@ -9,8 +9,14 @@ if (is_post()) {
     if ($m = validate_password($_POST['password'] ?? '')) $error = $m;
     elseif (($_POST['password'] ?? '') !== ($_POST['confirm'] ?? '')) $error = 'Passwords do not match.';
     else {
-        q('UPDATE users SET password_hash=? WHERE id=?', [password_hash($_POST['password'], PASSWORD_DEFAULT), $row['user_id']]);
-        q('UPDATE password_resets SET used=1 WHERE id=?', [$row['id']]);
+        $pdo=db(); $pdo->beginTransaction();
+        try {
+            q('SELECT id FROM users WHERE id=? FOR UPDATE',[$row['user_id']]);
+            if (!fetch_one('SELECT id FROM password_resets WHERE id=? AND used=0 AND expires_at>NOW()',[$row['id']])) throw new RuntimeException('Reset link already used.');
+            q('UPDATE users SET password_hash=? WHERE id=?', [password_hash($_POST['password'], PASSWORD_DEFAULT), $row['user_id']]);
+            q('UPDATE password_resets SET used=1 WHERE user_id=?', [$row['user_id']]);
+            $pdo->commit();
+        } catch(Throwable $ex) { $pdo->rollBack(); flash('error','Reset link is no longer valid.'); redirect(url('forgot')); }
         flash('success', 'Password updated. You can sign in now.');
         redirect(url('login'));
     }

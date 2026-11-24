@@ -6,6 +6,7 @@ function money($n): string { return CURRENCY . number_format((float)$n, 2); }
 
 function url(string $page = 'home', array $params = []): string
 {
+    if (defined('ADMIN_SESSION') && ADMIN_SESSION && in_array($page, ['login','logout','verify'], true)) $params += ['workspace'=>'admin'];
     $params = ['page' => $page] + $params;
     return BASE_URL . '/index.php?' . http_build_query($params);
 }
@@ -24,7 +25,7 @@ function csrf_token(): string
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="' . csrf_token() . '">'; }
 function csrf_check(): void
 {
-    if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
+    if (empty($_SESSION['csrf']) || !is_string($_POST['csrf'] ?? null) || !hash_equals($_SESSION['csrf'], $_POST['csrf'])) {
         http_response_code(419);
         exit('Session expired. Please go back and try again.');
     }

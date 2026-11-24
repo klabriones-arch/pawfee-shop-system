@@ -11,9 +11,11 @@ if (is_post()) {
         if ($do === 'status') {
             $new = input('status'); $remarks = input('remarks');
             if (!in_array($new, ['Under Review', 'Approved', 'Rejected', 'Item Received', 'Closed'], true)) throw new RuntimeException('Invalid status.');
-            q('UPDATE return_requests SET status=?, admin_remarks=? WHERE id=?', [$new, $remarks ?: null, $rid]);
+            $allowed=['Requested'=>['Under Review','Approved','Rejected'],'Under Review'=>['Approved','Rejected'],'Approved'=>['Item Received','Closed'],'Item Received'=>['Closed'],'Rejected'=>['Closed']];
+            if ($new!==$r['status'] && !in_array($new,$allowed[$r['status']]??[],true)) throw new RuntimeException('Invalid request status transition.');
             if ($new === 'Approved' && $r['type'] === 'cancellation') set_order_status((int)$r['order_id'], 'Cancelled', $uid, 'Cancellation approved');
             if ($new === 'Approved' && $r['type'] === 'return')       set_order_status((int)$r['order_id'], 'Returned', $uid, 'Return approved');
+            q('UPDATE return_requests SET status=?, admin_remarks=? WHERE id=?', [$new, $remarks ?: null, $rid]);
             if (in_array($new, ['Approved', 'Rejected'], true))
                 notify((int)$r['user_id'], $r['customer_email'], 'return_decision', "Your {$r['type']} request was " . strtolower($new), "Order {$r['order_no']}: $new." . ($remarks ? "\nNote: $remarks" : ''));
             flash('success', 'Request updated.');
@@ -38,7 +40,7 @@ if ($id && ($r = fetch_one('SELECT rr.*, o.order_no, o.total, o.customer_name, o
       <form method="post" class="stack"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>"><input type="hidden" name="do" value="status">
         <label>Status<select name="status"><?php foreach (['Under Review', 'Approved', 'Rejected', 'Item Received', 'Closed'] as $s): ?><option <?= selected($r['status'], $s) ?>><?= $s ?></option><?php endforeach; ?></select></label>
         <label>Remarks<input name="remarks" value="<?= e($r['admin_remarks']) ?>"></label><button class="btn">Save</button></form>
-      <?php if ($r['type'] === 'return' && in_array($r['status'], ['Approved', 'Item Received'], true)): ?><hr>
+      <?php if ($r['type'] === 'return' && $r['status']==='Item Received'): ?><hr>
       <form method="post" class="stack" data-confirm="Process this refund?"><?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>"><input type="hidden" name="do" value="refund">
         <label>Refund amount<input type="number" step="0.01" min="0.01" max="<?= (float)$r['total'] ?>" name="amount" value="<?= (float)$r['total'] ?>" required></label>
         <label class="check"><input type="checkbox" name="restock" value="1"> Restock returned items</label><button class="btn btn-danger">Process refund</button></form><?php endif; ?></section>

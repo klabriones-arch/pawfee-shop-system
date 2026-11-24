@@ -40,7 +40,7 @@ if ($id && ($o = fetch_one('SELECT * FROM orders WHERE id=?', [$id]))) {
     <section class="card pad"><h3><?= $fulfillment ? 'Packing, shipping & delivery update' : 'Update order' ?></h3>
       <?php if ($o['status'] === 'Pending'): ?><form method="post" class="row"><?= csrf_field() ?><input type="hidden" name="order_id" value="<?= $id ?>"><button class="btn" name="do" value="confirm">Confirm order</button></form><hr><?php endif; ?>
       <form method="post" class="stack"><?= csrf_field() ?><input type="hidden" name="order_id" value="<?= $id ?>"><input type="hidden" name="do" value="status">
-        <label>Status<select name="status"><?php foreach (ORDER_STATUSES as $s): ?><option <?= selected($o['status'], $s) ?>><?= $s ?></option><?php endforeach; ?></select></label>
+        <label>Status<select name="status"><?php foreach (array_merge([$o['status']],array_diff(allowed_order_statuses($o),['Returned','Refunded'])) as $s): ?><option <?= selected($o['status'], $s) ?>><?= $s ?></option><?php endforeach; ?></select></label>
         <label>Remarks<input name="remarks" placeholder="Optional note for the timeline"></label><button class="btn">Update status</button></form>
       <?php if (!in_array($o['status'], ['Cancelled', 'Delivered', 'Refunded', 'Failed'], true)): ?><hr>
       <form method="post" class="row" data-confirm="Cancel this order and restock items?"><?= csrf_field() ?><input type="hidden" name="order_id" value="<?= $id ?>"><input type="hidden" name="do" value="cancel"><input name="remarks" placeholder="Reason"><button class="btn btn-danger">Cancel order</button></form><?php endif; ?></section>

@@ -33,17 +33,22 @@ function place_order(array $user, array $d): int
     $pdo->beginTransaction();
     try {
         $cid = cart_id(false);
-        $cart = fetch_all('SELECT * FROM cart_items WHERE cart_id=?', [$cid]);
+        if (!$cid) throw new RuntimeException('Your cart is empty.');
+        q('SELECT id FROM carts WHERE id=? AND user_id=? FOR UPDATE',[$cid,$user['id']]);
+        $cart = fetch_all('SELECT * FROM cart_items WHERE cart_id=? ORDER BY product_id,id FOR UPDATE', [$cid]);
         if (!$cart) throw new RuntimeException('Your cart is empty.');
 
-        $sub = 0.0; $lines = [];
+        $sub = 0.0; $lines = []; $quantities=[];
+        foreach($cart as $ci) $quantities[$ci['product_id']]=($quantities[$ci['product_id']]??0)+(int)$ci['qty'];
         foreach ($cart as $ci) {
             $p = fetch_one('SELECT p.* FROM products p JOIN categories c ON c.id=p.category_id WHERE p.id=? AND p.status="active" AND c.status="active" FOR UPDATE', [$ci['product_id']]);
             if (!$p) throw new RuntimeException('An item in your cart is no longer available.');
-            if ($p['stock'] < $ci['qty']) throw new RuntimeException("Only {$p['stock']} of {$p['name']} left in stock.");
-            [, $label, $price] = resolve_variants($p, array_column(
+            if ($p['stock'] < $quantities[$ci['product_id']]) throw new RuntimeException("Only {$p['stock']} of {$p['name']} left in stock.");
+            [$resolvedIds, $label, $price] = resolve_variants($p, array_column(
                 array_map(fn($vid) => fetch_one('SELECT group_name, id FROM product_variants WHERE id=? AND product_id=?', [$vid, $p['id']]) ?: ['group_name' => '', 'id' => 0],
                     array_filter(explode(',', $ci['variant_ids']))), 'id', 'group_name'));
+            $oldIds=array_filter(explode(',', $ci['variant_ids'])); $newIds=array_filter(explode(',', $resolvedIds)); sort($oldIds); sort($newIds);
+            if ($oldIds !== $newIds) throw new RuntimeException('Product options changed. Remove and re-add the item.');
             $lines[] = ['p' => $p, 'label' => $label, 'price' => $price, 'qty' => (int)$ci['qty']];
             $sub += $price * $ci['qty'];
         }
@@ -87,14 +92,21 @@ const STATUS_MESSAGES = [
     'Cancelled' => 'cancellation', 'Failed' => 'delivery_failed', 'Returned' => 'returned', 'Refunded' => 'refund_processed',
 ];
 
+function allowed_order_statuses(array $o): array {
+    $map=['Pending'=>['Confirmed','Cancelled'],'Confirmed'=>['Processing','Cancelled'],'Processing'=>['Packed','Cancelled'],'Packed'=>$o['delivery_method']==='pickup'?['Delivered','Cancelled']:['Shipped','Cancelled'],'Shipped'=>['Out for Delivery'],'Out for Delivery'=>['Delivered','Failed'],'Failed'=>['Out for Delivery','Cancelled'],'Delivered'=>['Returned'],'Returned'=>['Refunded']];
+    return $map[$o['status']]??[];
+}
+
 function set_order_status(int $orderId, string $status, ?int $byUser, string $remarks = ''): void
 {
     if (!in_array($status, ORDER_STATUSES, true)) throw new RuntimeException('Invalid status.');
-    $o = fetch_one('SELECT * FROM orders WHERE id=?', [$orderId]);
-    if (!$o || $o['status'] === $status) return;
     $pdo = db();
     $pdo->beginTransaction();
     try {
+        $o = fetch_one('SELECT * FROM orders WHERE id=? FOR UPDATE', [$orderId]);
+        if (!$o) throw new RuntimeException('Order not found.');
+        if ($o['status'] === $status) { $pdo->commit(); return; }
+        if (!in_array($status, allowed_order_statuses($o),true)) throw new RuntimeException('Invalid order status transition.');
         q('UPDATE orders SET status=? WHERE id=?', [$status, $orderId]);
         if ($o['delivery_method'] === 'standard' && in_array($status, ['Out for Delivery', 'Delivered', 'Failed'], true)) {
             q('INSERT INTO shipments (order_id,status,attempts,remarks,delivered_at) VALUES (?,?,?, ?, IF(?="Delivered",NOW(),NULL)) ON DUPLICATE KEY UPDATE status=VALUES(status), attempts=attempts+VALUES(attempts), remarks=VALUES(remarks), delivered_at=VALUES(delivered_at)', [$orderId, $status, $status === 'Out for Delivery' ? 1 : 0, $remarks ?: null, $status]);
@@ -124,18 +136,20 @@ function set_order_status(int $orderId, string $status, ?int $byUser, string $re
 /** Mark a refund against a return request. */
 function process_refund(int $requestId, float $amount, bool $restock, int $adminId): void
 {
-    $r = fetch_one('SELECT rr.*, o.order_no, o.customer_email, o.total FROM return_requests rr JOIN orders o ON o.id=rr.order_id WHERE rr.id=?', [$requestId]);
-    if (!$r || $r['status'] === 'Refunded') throw new RuntimeException('Request not refundable.');
-    if ($amount <= 0 || $amount > $r['total']) throw new RuntimeException('Refund must be between 0 and the order total.');
-    $pdo = db();
-    $pdo->beginTransaction();
+    $pdo=db(); $pdo->beginTransaction();
     try {
-        q('INSERT INTO refunds (return_request_id,order_id,amount,reason,processed_by) VALUES (?,?,?,?,?)', [$requestId, $r['order_id'], $amount, $r['reason'], $adminId]);
-        q('UPDATE return_requests SET status="Refunded" WHERE id=?', [$requestId]);
-        q('UPDATE payments SET status="refunded" WHERE order_id=?', [$r['order_id']]);
-        if ($restock) restock_order((int)$r['order_id'], $adminId, "Restock: returned items {$r['order_no']}");
+        $r=fetch_one('SELECT rr.*,o.order_no,o.customer_email,o.status AS order_status FROM return_requests rr JOIN orders o ON o.id=rr.order_id WHERE rr.id=? FOR UPDATE',[$requestId]);
+        if (!$r || $r['type']!=='return' || $r['status']!=='Item Received' || $r['order_status']!=='Returned') throw new RuntimeException('Only received returns can be refunded.');
+        $pay=fetch_one('SELECT * FROM payments WHERE order_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE',[$r['order_id']]);
+        $used=(float)fetch_val('SELECT COALESCE(SUM(amount),0) FROM refunds WHERE order_id=?',[$r['order_id']]);
+        if (!$pay || $pay['status']!=='paid' || !is_finite($amount) || $amount<=0 || $amount > (float)$pay['amount']-$used) throw new RuntimeException('Refund exceeds the remaining paid amount.');
+        q('INSERT INTO refunds (return_request_id,order_id,amount,reason,processed_by) VALUES (?,?,?,?,?)',[$requestId,$r['order_id'],$amount,$r['reason'],$adminId]);
+        q('UPDATE return_requests SET status="Refunded" WHERE id=?',[$requestId]);
+        q('UPDATE payments SET status="refunded" WHERE order_id=?',[$r['order_id']]);
+        if ($restock) restock_order((int)$r['order_id'],$adminId,'Restock: returned items '.$r['order_no']);
+        q('UPDATE orders SET status="Refunded" WHERE id=?',[$r['order_id']]);
+        q('INSERT INTO order_status_history (order_id,status,remarks,updated_by) VALUES (?,"Refunded",?,?)',[$r['order_id'],'Refund of '.money($amount).' processed',$adminId]);
         $pdo->commit();
-    } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
-    set_order_status((int)$r['order_id'], 'Refunded', $adminId, 'Refund of ' . money($amount) . ' processed');
-    notify((int)$r['user_id'], $r['customer_email'], 'refund_processed', "Refund processed for {$r['order_no']}", 'We refunded ' . money($amount) . '.');
+    } catch(Throwable $e) { $pdo->rollBack(); throw $e; }
+    notify((int)$r['user_id'],$r['customer_email'],'refund_processed','Refund processed for '.$r['order_no'],'We refunded '.money($amount).'.');
 }
