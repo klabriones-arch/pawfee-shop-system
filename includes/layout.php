@@ -11,7 +11,7 @@ function icon(string $name): string
     return '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $paths[$name] . '</svg>';
 }
 
-function page_header(string $title, string $active = ''): void
+function page_header(string $title, string $active = '', bool $wide = false): void
 {
     $u = current_user();
     $nav = [
@@ -60,15 +60,16 @@ function page_header(string $title, string $active = ''): void
     <button class="btn btn-sm">Search</button>
   </form>
 </header>
-<main class="container">
+<main class="<?= $wide ? 'wide' : 'container' ?>">
 <?php foreach (flashes() as [$type, $msg]): ?>
   <div class="alert alert-<?= e($type) ?>"><?= e($msg) ?></div>
 <?php endforeach;
 }
 
-function page_footer(): void
+function page_footer(bool $custom = false): void
 { ?>
 </main>
+<?php if (!$custom): ?>
 <footer class="site-footer">
   <div class="footer-grid">
     <div><strong>Pawfee Shop</strong><p class="muted">A little pause for you and your paws.</p></div>
@@ -77,6 +78,7 @@ function page_footer(): void
   </div>
   <div class="footer-bar"><span>© <?= date('Y') ?> Pawfee Shop. All rights reserved.</span><span>Good coffee. Great company. All paws welcome.</span></div>
 </footer>
+<?php endif; ?>
 <script src="<?= asset('js/app.js') ?>"></script>
 </body>
 </html>

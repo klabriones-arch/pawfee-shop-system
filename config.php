@@ -26,7 +26,7 @@ define('SMTP_USER', '');
 define('SMTP_PASS', '');
 
 // Store info (shown on Contact / footer)
-define('STORE_ADDRESS', '123 Barkley Street, Dasmariñas, Cavite');
-define('STORE_PHONE', '0912 345 6789');
-define('STORE_EMAIL', 'hello@pawfee.shop');
-define('STORE_HOURS', 'Daily, 8:00 AM – 9:00 PM');
+define('STORE_ADDRESS', 'B6 L7 PH8, Barangay 9, Biringan City, Philippines');
+define('STORE_PHONE', '+63 993 184 2108');
+define('STORE_EMAIL', 'pawfeeshop@gmail.com');
+define('STORE_HOURS', '9AM – 9PM, Monday – Saturday');

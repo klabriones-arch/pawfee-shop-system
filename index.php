@@ -14,7 +14,7 @@ foreach (['db', 'helpers', 'auth', 'mailer', 'cart', 'orders', 'layout'] as $f) 
 $page = preg_replace('/[^a-z_]/', '', $_GET['page'] ?? 'home');
 
 $routes = [
-    'home' => 'home', 'shop' => 'shop', 'product' => 'product', 'cart' => 'cart', 'checkout' => 'checkout',
+    'home' => 'landing', 'menu' => 'home', 'shop' => 'shop', 'product' => 'product', 'cart' => 'cart', 'checkout' => 'checkout',
     'mockpay' => 'mockpay', 'login' => 'login', 'register' => 'register', 'verify' => 'verify',
     'forgot' => 'forgot', 'reset' => 'reset', 'logout' => 'logout', 'account' => 'account', 'order' => 'order',
     'about' => 'about', 'contact' => 'contact', 'categories' => 'categories', 'mail' => 'mail',
