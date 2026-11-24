@@ -25,6 +25,7 @@ function page_header(string $title, string $active = '', bool $wide = false): vo
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= e($title) ?> · Pawfee Shop</title>
+  <link rel="icon" type="image/svg+xml" href="<?= asset('images/logo.svg') ?>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= asset('css/style.css') ?>">
@@ -102,6 +103,7 @@ function admin_header(string $title, string $active): void
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= e($title) ?> · Pawfee Admin</title>
+<link rel="icon" type="image/svg+xml" href="<?= asset('images/logo.svg') ?>">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="<?= asset('css/style.css') ?>">
 <link rel="stylesheet" href="<?= asset('css/admin.css') ?>">

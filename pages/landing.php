@@ -37,7 +37,7 @@ function landing_img(string $name): ?string
         if (is_file(__DIR__ . "/../assets/images/$name.$ext")) return asset("images/$name.$ext");
     return null;
 }
-$wordmark = landing_img('wordmark');
+$wordmark = hero_url();
 $aboutImg = landing_img('about');
 $user     = current_user();
 
